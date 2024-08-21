@@ -1,6 +1,36 @@
 # Changelog
 Newest updates are at the top of this file.
 
+### Jun 18 2024 (v5.6.0)
+* Update to MQ 9.4.0
+* Update all vendored dependencies
+* Add OTLP/http option to OTel emitter
+  * Remove "EXPERIMENTAL" flag
+* Convert OTEL and Prometheus sample dashboards to newer Grafana panels
+* Update to Go 1.21 as baseline (OTEL requirement)
+* Permit connection to unnamed (default) queue manager 
+
+### Mar 21 2024 (v5.5.4.1)
+* Update main Dockerfile to use different base build image 
+  because of glibc issues when copying into regular MQ container
+
+### Feb 29 2024 (v5.5.4)
+* Update to MQ 9.3.5
+* Update all vendored dependencies
+* Add metadata label configuration options
+* Update to Go 1.20 as baseline
+* Add EXPERIMENTAL OpenTelemetry emitter
+
+### Nov 08 2023 (v5.5.2)
+* Pick up latest mq-golang fixes
+
+### Oct 19 2023 (v5.5.1)
+* Update to MQ 9.3.4
+* Fix Prometheus label cardinality when reporting disconnect (#245)
+* Add hints about monitoring "large" queue managers in TUNING.md
+* Make sure missing YAML configuration attributes have reasonable defaults
+* Update all vendored dependencies
+
 ### Jun 20 2023 (v5.5.0)
 * Update to MQ 9.3.3
 * Update Dockerfile to support platforms without Redist client (#209)

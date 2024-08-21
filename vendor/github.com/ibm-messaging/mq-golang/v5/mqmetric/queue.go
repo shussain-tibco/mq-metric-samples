@@ -6,7 +6,7 @@ storage mechanisms including Prometheus and InfluxDB.
 package mqmetric
 
 /*
-  Copyright (c) IBM Corporation 2018,2022
+  Copyright (c) IBM Corporation 2018,2024
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ package mqmetric
 */
 
 /*
-Functions in this file use the DISPLAY QueueStatus command to extract metrics
+Functions in this file use the DISPLAY QStatus command to extract metrics
 about MQ queues
 */
 
@@ -44,7 +44,6 @@ const (
 	ATTR_Q_OPPROCS     = "output_handles"
 	ATTR_Q_QTIME_SHORT = "qtime_short"
 	ATTR_Q_QTIME_LONG  = "qtime_long"
-	ATTR_Q_DEPTH       = "depth"
 	ATTR_Q_CURFSIZE    = "qfile_current_size"
 	ATTR_Q_SINCE_PUT   = "time_since_put"
 	ATTR_Q_SINCE_GET   = "time_since_get"
@@ -55,10 +54,11 @@ const (
 	// but on z/OS it only indicates 0/1 (MQQSUM_NO/YES)
 	ATTR_Q_UNCOM = "uncommitted_messages"
 
-	// The next two attributes are given the same name
+	// The next attributes are given the same name
 	// as the published statistics from the amqsrua-style
-	// vaues. That allows a dashboard for Distributed and z/OS
+	// values. That allows a dashboard for Distributed and z/OS
 	// to merge the same query.
+	ATTR_Q_DEPTH        = "depth"
 	ATTR_Q_INTERVAL_PUT = "mqput_mqput1_count"
 	ATTR_Q_INTERVAL_GET = "mqget_count"
 	// This is the Highest Depth returned over an interval via the
@@ -72,8 +72,7 @@ Unlike the statistics produced via a topic, there is no discovery
 of the attributes available in object STATUS queries. There is also
 no discovery of descriptions for them. So this function hardcodes the
 attributes we are going to look for and gives the associated descriptive
-text. The elements can be expanded later; just trying to give a starting point
-for now.
+text.
 */
 func QueueInitAttributes() {
 	traceEntry("QueueInitAttributes")
@@ -117,10 +116,13 @@ func QueueInitAttributes() {
 	attr = ATTR_Q_CURMAXFSIZE
 	st.Attributes[attr] = newStatusAttribute(attr, "Queue File Maximum Size", ibmmq.MQIACF_CUR_MAX_FILE_SIZE)
 
-	// Usually we get the QDepth from published resources, But on z/OS we can get it from the QSTATUS response
-	if !ci.usePublications {
+	// Usually we get the QDepth from published resources, But on z/OS we can get it from the QSTATUS response. We
+	// also have an option where we are ignoring most of the queue publications even if we use subscriptions for other
+	// object (qmgr/NHA) resources
+	if !ci.usePublications || ci.useDepthFromStatus {
 		attr = ATTR_Q_DEPTH
-		st.Attributes[attr] = newStatusAttribute(attr, "Queue Depth", ibmmq.MQIA_CURRENT_Q_DEPTH)
+		// The description should match the published metric, including case
+		st.Attributes[attr] = newStatusAttribute(attr, "Queue depth", ibmmq.MQIA_CURRENT_Q_DEPTH)
 	}
 
 	if ci.si.platform == ibmmq.MQPL_ZOS && ci.useResetQStats {
@@ -259,13 +261,15 @@ func collectQueueStatus(pattern string, instanceType int32) error {
 
 	// Now get the responses - loop until all have been received (one
 	// per queue) or we run out of time
+	statusMsgCount := 0
 	for allReceived := false; !allReceived; {
 		cfh, buf, allReceived, err = statusGetReply(putmqmd.MsgId)
 		if buf != nil {
+			statusMsgCount++
 			parseQData(instanceType, cfh, buf)
 		}
 	}
-
+	//logDebug("collectQueueStatus response count: %d", statusMsgCount)
 	traceExitErr("collectQueueStatus", 0, err)
 	return err
 }
@@ -352,7 +356,7 @@ func inquireQueueAttributes(objectPatternsList string) error {
 		pcfparm = new(ibmmq.PCFParameter)
 		pcfparm.Type = ibmmq.MQCFT_INTEGER_LIST
 		pcfparm.Parameter = ibmmq.MQIACF_Q_ATTRS
-		pcfparm.Int64Value = []int64{int64(ibmmq.MQIA_MAX_Q_DEPTH), int64(ibmmq.MQIA_USAGE), int64(ibmmq.MQCA_Q_DESC), int64(ibmmq.MQCA_CLUSTER_NAME)}
+		pcfparm.Int64Value = []int64{int64(ibmmq.MQIA_MAX_Q_DEPTH), int64(ibmmq.MQIA_USAGE), int64(ibmmq.MQIA_DEFINITION_TYPE), int64(ibmmq.MQCA_Q_DESC), int64(ibmmq.MQCA_CLUSTER_NAME)}
 		cfh.ParameterCount++
 		buf = append(buf, pcfparm.Bytes()...)
 
@@ -576,6 +580,13 @@ func parseQAttrData(cfh *ibmmq.MQCFH, buf []byte) {
 					qInfo.AttrUsage = v
 				}
 			}
+		case ibmmq.MQIA_DEFINITION_TYPE:
+			v := elem.Int64Value[0]
+			if v > 0 {
+				if qInfo, ok := qInfoMap[qName]; ok {
+					qInfo.DefType = v
+				}
+			}
 		case ibmmq.MQCA_Q_DESC:
 			v := elem.String[0]
 			if v != "" {
@@ -604,30 +615,42 @@ func QueueNormalise(attr *StatusAttribute, v int64) float64 {
 	return statusNormalise(attr, v)
 }
 
-// Return the nominated MQCA* attribute from the object's attributes
+// Return the nominated MQCA*/MQIA* attribute from the object's attributes
 // stored in the map
 func GetQueueAttribute(key string, attribute int32) string {
 	var o *ObjInfo
-	v := "-"
+	v := DUMMY_STRING
 	ok := false
 
 	o, ok = qInfoMap[key]
 
 	if !ok {
 		// return something so Prometheus doesn't turn it into "0.0"
-		return "-"
+		return DUMMY_STRING
 	}
 
 	switch attribute {
 	case ibmmq.MQCA_CLUSTER_NAME:
 		v = o.Cluster
+	case ibmmq.MQIA_DEFINITION_TYPE:
+		defType := int32(o.DefType)
+		switch defType {
+		case ibmmq.MQQDT_PREDEFINED:
+			v = "Predefined"
+		case ibmmq.MQQDT_PERMANENT_DYNAMIC:
+			v = "PermDyn"
+		case ibmmq.MQQDT_TEMPORARY_DYNAMIC:
+			v = "TempDyn"
+		case ibmmq.MQQDT_SHARED_DYNAMIC:
+			v = "SharedDyn"
+		}
 	default:
-		v = "-"
+		v = DUMMY_STRING
 	}
 	v = strings.TrimSpace(v)
 
 	if v == "" {
-		v = "-"
+		v = DUMMY_STRING
 	}
 	return v
 }

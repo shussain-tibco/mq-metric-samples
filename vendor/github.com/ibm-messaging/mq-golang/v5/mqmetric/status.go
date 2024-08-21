@@ -6,7 +6,7 @@ storage mechanisms including Prometheus and InfluxDB.
 package mqmetric
 
 /*
-  Copyright (c) IBM Corporation 2016, 2022
+  Copyright (c) IBM Corporation 2016, 2023
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -44,9 +44,9 @@ type StatusAttribute struct {
 	Description string
 	MetricName  string
 	Pseudo      bool
+	Delta       bool
 	pcfAttr     int32
 	squash      bool
-	delta       bool
 	index       int
 	Values      map[string]*StatusValue
 	prevValues  map[string]int64
@@ -67,11 +67,11 @@ type StatusValue struct {
 // Initialise with default values.
 func newStatusAttribute(n string, d string, p int32) *StatusAttribute {
 	s := new(StatusAttribute)
-	s.MetricName = n
+	s.MetricName = formatAttrName(n) // Convert to a canonical metric name
 	s.Description = d
+	s.Delta = false
 	s.pcfAttr = p
 	s.squash = false
-	s.delta = false
 	s.index = -1
 	s.Values = make(map[string]*StatusValue)
 	s.prevValues = make(map[string]int64)
@@ -232,6 +232,7 @@ func statusGetReply(correlId []byte) (*ibmmq.MQCFH, []byte, bool, error) {
 
 	getmqmd.CorrelId = correlId
 	gmo.MatchOptions = ibmmq.MQMO_MATCH_CORREL_ID
+	gmo.Version = ibmmq.MQGMO_VERSION_2
 
 	allDone := false
 	datalen, err := ci.si.statusReplyQObj.Get(getmqmd, gmo, replyBuf)
@@ -300,7 +301,7 @@ func statusGetIntAttributes(s *StatusSet, elem *ibmmq.PCFParameter, key string) 
 			// metric attribute.
 			if index == -1 {
 				v := elem.Int64Value[0]
-				if s.Attributes[attr].delta {
+				if s.Attributes[attr].Delta {
 					// If we have already got a value for this attribute and queue
 					// then use it to create the delta. Otherwise make the initial
 					// value 0.
@@ -322,7 +323,7 @@ func statusGetIntAttributes(s *StatusSet, elem *ibmmq.PCFParameter, key string) 
 				}
 			} else {
 				v := elem.Int64Value
-				if s.Attributes[attr].delta {
+				if s.Attributes[attr].Delta {
 					// If we have already got a value for this attribute and queue
 					// then use it to create the delta. Otherwise make the initial
 					// value 0.

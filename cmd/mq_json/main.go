@@ -47,7 +47,7 @@ func printInfo(title string, stamp string, commit string, buildPlatform string) 
 	if buildPlatform != "" {
 		log.Infoln("Build Platform: " + buildPlatform)
 	}
-	log.Infoln("MQ Go Version : " + cf.MqGolangVersion)
+	log.Infoln("MQ Go Version : " + cf.MqGolangVersion())
 	log.Println("")
 }
 
@@ -81,6 +81,11 @@ func main() {
 	}
 
 	if err == nil {
+		if config.cf.QMgrName == "" || strings.HasPrefix(config.cf.QMgrName, "*") {
+			qmName := mqmetric.GetResolvedQMgrName()
+			log.Infoln("Resolving blank/default qmgr name to ", qmName)
+			config.cf.QMgrName = qmName
+		}
 		log.Infoln("Connected to queue manager ", config.cf.QMgrName)
 	} else {
 		if mqe, ok := err.(mqmetric.MQMetricError); ok {

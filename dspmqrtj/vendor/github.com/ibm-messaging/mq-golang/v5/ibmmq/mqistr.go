@@ -14,7 +14,7 @@ package ibmmq
 * for each value; those can be found in other header files such as
 * cmqc.h.
 ****************************************************************
-* Copyright (c) IBM Corporation 1993, 2023
+* Copyright (c) IBM Corporation 1993, 2024
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -1459,6 +1459,12 @@ func MQItoString(class string, value int) string {
 			s = "MQCMDL_LEVEL_932"
 		case 933:
 			s = "MQCMDL_LEVEL_933"
+		case 934:
+			s = "MQCMDL_LEVEL_934"
+		case 935:
+			s = "MQCMDL_LEVEL_935"
+		case 940:
+			s = "MQCMDL_LEVEL_940"
 		default:
 			s = ""
 		}
@@ -1557,6 +1563,10 @@ func MQItoString(class string, value int) string {
 			s = "MQCOMPRESS_ZLIBHIGH"
 		case 8:
 			s = "MQCOMPRESS_SYSTEM"
+		case 16:
+			s = "MQCOMPRESS_LZ4FAST"
+		case 32:
+			s = "MQCOMPRESS_LZ4HIGH"
 		case 268435455:
 			s = "MQCOMPRESS_ANY"
 		default:
@@ -1647,6 +1657,8 @@ func MQItoString(class string, value int) string {
 			s = "MQCSP_AUTH_NONE"
 		case 1:
 			s = "MQCSP_AUTH_USER_ID_AND_PWD"
+		case 2:
+			s = "MQCSP_AUTH_ID_TOKEN"
 		default:
 			s = ""
 		}
@@ -5725,6 +5737,8 @@ func MQItoString(class string, value int) string {
 			s = "MQ_CERT_VAL_POLICY_ANY"
 		case 1:
 			s = "MQ_CERT_VAL_POLICY_RFC5280"
+		case 2:
+			s = "MQ_CERT_VAL_POLICY_NONE"
 		default:
 			s = ""
 		}

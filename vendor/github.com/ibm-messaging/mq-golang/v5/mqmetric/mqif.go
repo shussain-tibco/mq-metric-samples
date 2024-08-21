@@ -1,7 +1,7 @@
 package mqmetric
 
 /*
-  Copyright (c) IBM Corporation 2016, 2022
+  Copyright (c) IBM Corporation 2016, 2023
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -200,7 +200,7 @@ func initConnectionKey(key string, qMgrName string, replyQ string, replyQ2 strin
 				ibmmq.MQIA_MAX_HANDLES,
 				ibmmq.MQIA_PLATFORM}
 
-			v, err = ci.si.qMgrObject.InqMap(selectors)
+			v, err = ci.si.qMgrObject.Inq(selectors)
 			if err == nil {
 				ci.si.resolvedQMgrName = v[ibmmq.MQCA_Q_MGR_NAME].(string)
 				ci.si.platform = v[ibmmq.MQIA_PLATFORM].(int32)
@@ -351,7 +351,7 @@ func EndConnection() {
 }
 
 /*
-getMessage returns a message from the replyQ. The only
+getMessage returns a message from the replyQ. The "wait"
 parameter to the function says whether this should block
 for 30 seconds or return immediately if there is no message
 available. When working with the command queue, blocking is
@@ -360,9 +360,8 @@ required; when getting publications, non-blocking is better.
 A 32K buffer was created at the top of this file, and should always
 be big enough for what we are expecting.
 */
-func getMessage(wait bool) ([]byte, error) {
+func getMessage(ci *connectionInfo, wait bool) ([]byte, error) {
 	traceEntry("getMessage")
-	ci := getConnection(GetConnectionKey())
 
 	rc, err := getMessageWithHObj(wait, ci.si.replyQObj)
 	traceExitErr("getMessage", 0, err)
@@ -409,10 +408,7 @@ func subscribeDurable(topic string, pubQObj *ibmmq.MQObject) (*MQTopicDescriptor
 }
 
 /*
-	subscribe to the 	} else {
-									s.removeSubscription()
-								}nominated topic, but ask the queue manager to
-
+subscribe to the nominated topic, but ask the queue manager to
 allocate the replyQ for us
 */
 func subscribeManaged(topic string, pubQObj *ibmmq.MQObject) (*MQTopicDescriptor, error) {
@@ -667,4 +663,9 @@ Return the current command level
 func GetCommandLevel() int32 {
 	ci := getConnection(GetConnectionKey())
 	return ci.si.commandLevel
+}
+
+func GetResolvedQMgrName() string {
+	ci := getConnection(GetConnectionKey())
+	return ci.si.resolvedQMgrName
 }

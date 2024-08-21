@@ -6,7 +6,7 @@ storage mechanisms including Prometheus and InfluxDB.
 package mqmetric
 
 /*
-  Copyright (c) IBM Corporation 2016, 2023
+  Copyright (c) IBM Corporation 2016, 2024
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -94,6 +93,7 @@ type ObjInfo struct {
 	// These are used for queue information
 	AttrMaxDepth int64  // The queue attribute value. Not the max depth reported by RESET QSTATS
 	AttrUsage    int64  // Normal or XMITQ
+	DefType      int64  // Predefined or temp/perm dynamic queue
 	Cluster      string // The name of a single cluster in which the queue is shared (CLUSTERNL not supported here)
 	// Some channel information
 	AttrMaxInst  int64
@@ -163,7 +163,7 @@ func VerifyConfig() (int32, error) {
 
 	if err == nil {
 		selectors := []int32{ibmmq.MQIA_MAX_Q_DEPTH, ibmmq.MQIA_DEFINITION_TYPE}
-		v, err = ci.si.replyQObj.InqMap(selectors)
+		v, err = ci.si.replyQObj.Inq(selectors)
 		if err == nil {
 			maxQDepth := v[ibmmq.MQIA_MAX_Q_DEPTH].(int32)
 			// Function has tuning based on number of queues to be monitored
@@ -341,6 +341,18 @@ func discoverAndSubscribe(dc DiscoverConfig, redo bool) error {
 		err = createSubscriptions()
 	}
 
+	// If you are using publications for some resource metrics, but have chosen not to collect the topics that might contain queue depth,
+	// then there's still a possibility to find that particular value from QSTATUS responses as an alternative. The SubscriptionSelector has had
+	// two topics, depending on the MQ version, which give the depth.
+	subSel := dc.MonitoredQueues.SubscriptionSelector
+	if subSel != "" && !strings.Contains(subSel, "GENERAL") && !strings.Contains(subSel, "GET") {
+		logDebug("Setting connection to grab qdepth via QSTATUS")
+		ci.useDepthFromStatus = true
+	} else {
+		logDebug("Setting connection to grab qdepth via Publication")
+		ci.useDepthFromStatus = false
+	}
+
 	traceExitErr("discoverAndSubscribe", 0, err)
 
 	return err
@@ -401,12 +413,12 @@ func discoverClasses(dc DiscoverConfig, metaPrefix string) error {
 					return e2
 				}
 			}
-			// - The Native HA metrics introduced in MQ 9.2.3 are not currently tested for metric name maps
-			//   and might need additional configuration to fill in an object name
-			// - The STATAPP metrics are not very useful yet as they only work for apps known at subscription
-			//   time. As well as needing additional configuration.
+
+			// The STATAPP metrics are not very useful as they only work for apps known at subscription
+			// time. As well as needing additional configuration.
 			// So we ignore these for now, but might enable them in future. Adding them to the subscription
-			// list by default would increase the handles in use without benefit.
+			// list by default would increase the handles in use without benefit. We do now support use of the
+			// NativeHA resources
 			switch cl.Name {
 			case "STATAPP":
 				logDebug("Not subscribing to Class STATAPP resources")
@@ -739,15 +751,15 @@ func discoverQueues(monitoredQueuePatterns string) error {
 			var ok bool
 			qName := strings.TrimSpace(qList[i])
 
-			// If the qName contains a '/' - eg "DEV/QUEUE/1" then the queue manager will
-			// not (right now) process resource publications correctly. Hopefully that will get
-			// fixed at some point, but we will issue a warning here. The same problem happens with
-			// amqsrua; there's no workround possible outside of the qmgr code.
+			// If the qName contains a '/' - eg "DEV/QUEUE/1" then the queue manager cannot
+			// process resource publications by simply inserting the qName because it disrupts
+			// the topic string pattern. This was fixed in the queue manager by 9.3.0 by allowing
+			// the subscriptions to use '&' in place of the '/' character.
 			//
-			// Because of the possible complexities of pattern matching, we don't
+			// For older levels of MQ, because of the possible complexities of pattern matching, we don't
 			// actually fail the discovery process, but instead issue a warning and continue with
 			// other queues.
-			if strings.Contains(qName, "/") && ci.globalSlashWarning == false {
+			if strings.Contains(qName, "/") && ci.globalSlashWarning == false && GetCommandLevel() < ibmmq.MQCMDL_LEVEL_930 {
 				ci.localSlashWarning = true // First time through, issue the warning for all queues
 				logError("Warning: Cannot subscribe to queue containing '/': %s", qName)
 				continue
@@ -1026,7 +1038,15 @@ func createSubscriptions() error {
 							delete(ty.subHobj, key)
 						}
 					} else {
-						topic := fmt.Sprintf(ty.ObjectTopic, key)
+						// Convert embedded "/" to "&" in the topic subscriptions, provided
+						// we are at MQ 9.3. The maps referring to the topic still keep the "/" in
+						// the key for maps referring to the object; we don't need the modified topic name
+						// outside of the initial subscription.
+						keyDeslashed := key
+						if GetCommandLevel() >= ibmmq.MQCMDL_LEVEL_930 {
+							keyDeslashed = strings.Replace(key, "/", "&", -1)
+						}
+						topic := fmt.Sprintf(ty.ObjectTopic, keyDeslashed)
 						if usingDurableSubs {
 							mqtd, err = subscribeDurable(topic, &ci.si.replyQObj)
 						} else {
@@ -1097,7 +1117,7 @@ func ProcessPublications() error {
 	// Keep reading all available messages until queue is empty. Don't
 	// do a GET-WAIT; just immediate removals.
 	for err == nil {
-		data, err = getMessage(false)
+		data, err = getMessage(ci, false)
 
 		// Most common error will be MQRC_NO_MESSAGE_AVAILABLE
 		// which will end the loop.
@@ -1108,8 +1128,7 @@ func ProcessPublications() error {
 			// A typical publication contains some fixed
 			// headers (qmgrName, objectName, class, type etc)
 			// followed by a list of index/values.
-
-			// This map contains those element indexes and values from each message
+			// Start with an empty map for each message
 			values := make(map[int]int64)
 
 			objName = ""
@@ -1165,6 +1184,7 @@ func ProcessPublications() error {
 			// explicitly labelled "DELTA" are ones we should just
 			// use the latest value.
 			for key, newValue := range values {
+
 				typesArray := metrics.Classes[classidx].Types
 				if typesIdx, ok1 := typesArray[typeidx]; ok1 {
 					if elem, ok2 := typesIdx.Elements[key]; ok2 {
@@ -1204,8 +1224,10 @@ func ProcessPublications() error {
 
 						if oldValue, ok := elem.Values[elemKey]; ok {
 							if elem.Datatype == ibmmq.MQIAMO_MONITOR_DELTA {
+								//logDebug("Metric with delta flag on  - %s", elem.MetricName)
 								value = oldValue + newValue
 							} else {
+								//logDebug("Metric with delta flag off - %s", elem.MetricName)
 								value = newValue
 							}
 						} else {
@@ -1267,23 +1289,14 @@ func parsePCFResponse(buf []byte) ([]*ibmmq.PCFParameter, bool) {
 	// If the command succeeded, loop through the remainder of the
 	// message to decode each parameter.
 	for i := 0; i < int(cfh.ParameterCount); i++ {
-		// We don't know how long the parameter is, so we just
+		// We don't know how long the next parameter is, so we just
 		// pass in "from here to the end" and let the parser
 		// tell us how far it got.
+		// We understand PCF Groups in ReadPCFParameter so don't need to extract them explicitly
 		elem, bytesRead = ibmmq.ReadPCFParameter(buf[offset:])
 		offset += bytesRead
-		// Have we now reached the end of the message
-		// We now understand PCF Groups so don't need to extract them explicitly
-		elemList = append(elemList, elem)
-		if elem.Type == ibmmq.MQCFT_GROUP {
-			groupElem := elem
-			for j := 0; j < int(groupElem.ParameterCount); j++ {
-				//elem, bytesRead = ibmmq.ReadPCFParameter(buf[offset:])
-				//offset += bytesRead
-				//groupElem.GroupList = append(groupElem.GroupList, elem)
-			}
-		}
 
+		elemList = append(elemList, elem)
 	}
 
 	if cfh.Control == ibmmq.MQCFC_LAST {
@@ -1292,71 +1305,6 @@ func parsePCFResponse(buf []byte) ([]*ibmmq.PCFParameter, bool) {
 	traceExit("parsePCFResponse", 0)
 
 	return elemList, rc
-}
-
-/*
-Need to turn the "friendly" name of each element into something
-that is suitable for metric names.
-
-Should also have consistency of units (always use seconds,
-bytes etc), and organisation of the elements of the name (units last)
-
-While we can't change the MQ-generated descriptions for its statistics,
-we can reformat most of them heuristically here.
-*/
-func formatDescription(elem *MonElement) string {
-	s := elem.Description
-	s = strings.Replace(s, " ", "_", -1)
-	s = strings.Replace(s, "/", "_", -1)
-	s = strings.Replace(s, "-", "_", -1)
-
-	/* Make sure we don't have multiple underscores */
-	multiunder := regexp.MustCompile("__*")
-	s = multiunder.ReplaceAllLiteralString(s, "_")
-
-	/* make it all lowercase. Not essential, but looks better */
-	s = strings.ToLower(s)
-
-	/* Remove all cases of bytes, seconds, count or percentage (we add them back in later) */
-	s = strings.Replace(s, "_count", "", -1)
-	s = strings.Replace(s, "_bytes", "", -1)
-	s = strings.Replace(s, "_byte", "", -1)
-	s = strings.Replace(s, "_seconds", "", -1)
-	s = strings.Replace(s, "_second", "", -1)
-	s = strings.Replace(s, "_percentage", "", -1)
-
-	// Switch round a couple of specific names
-	s = strings.Replace(s, "messages_expired", "expired_messages", -1)
-
-	// Add the unit at end
-	switch elem.Datatype {
-	case ibmmq.MQIAMO_MONITOR_PERCENT, ibmmq.MQIAMO_MONITOR_HUNDREDTHS:
-		s = s + "_percentage"
-	case ibmmq.MQIAMO_MONITOR_MB, ibmmq.MQIAMO_MONITOR_GB:
-		s = s + "_bytes"
-	case ibmmq.MQIAMO_MONITOR_MICROSEC:
-		s = s + "_seconds"
-	default:
-		if strings.Contains(s, "_total") {
-			/* If we specify it is a total in description put that at the end */
-			s = strings.Replace(s, "_total", "", -1)
-			s = s + "_total"
-		} else if strings.Contains(s, "log_") {
-			/* Weird case where the log datatype is not MB or GB but should be bytes */
-			s = s + "_bytes"
-		}
-
-		// There are some metrics that have both "count" and "byte count" in
-		// the descriptions. They were getting mapped to the same string, so
-		// we have to ensure uniqueness.
-		if strings.Contains(elem.Description, "byte count") {
-			s = s + "_bytes"
-		} else if strings.HasSuffix(elem.Description, " count") && !strings.Contains(s, "_count") {
-			s = s + "_count"
-		}
-	}
-	logTrace("  [%s] in:%s out:%s", "formatDescription", elem.Description, s)
-	return s
 }
 
 /*
@@ -1587,7 +1535,7 @@ func GetObjectDescription(key string, objectType int32) string {
 
 	if !ok || strings.TrimSpace(o.Description) == "" {
 		// return something so Prometheus doesn't turn it into "0.0"
-		return "-"
+		return DUMMY_STRING
 	} else {
 		return o.Description
 	}

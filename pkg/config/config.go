@@ -59,6 +59,11 @@ type Config struct {
 	MonitoredSubscriptionsFile string
 	QueueSubscriptionSelector  string
 
+	metadataTags        string
+	metadataValues      string
+	MetadataTagsArray   []string
+	MetadataValuesArray []string
+
 	LogLevel string
 
 	// This is used for DISPLAY xxSTATUS commands, but not the collection of published resource stats
@@ -210,6 +215,9 @@ func InitConfig(cm *Config) {
 	AddParm(&cfMoved.QueueSubscriptionSelector, "", CP_STR, "removed.queueSubscriptionSelector", "objects", "queueSubscriptionSelector", "Moved to FILTERS section")
 	AddParm(&cfMoved.ShowInactiveChannels, "", CP_STR, "removed.showInactiveChannels", "objects", "showInactiveChannels", "Moved to FILTERS section")
 
+	AddParm(&cm.metadataTags, "", CP_STR, "ibmmq.metadataTags", "connection", "metadataTags", "Additional Tags")
+	AddParm(&cm.metadataValues, "", CP_STR, "ibmmq.metadataValues", "connection", "metadataValues", "Additional Values (one per tag)")
+
 }
 
 func ParseParms() error {
@@ -297,6 +305,9 @@ func cliSet(n string) bool {
 func VerifyConfig(cm *Config, fullCf interface{}) error {
 	var err error
 
+	// These are the resource metric classes that we currently know about for queue statistics, with "NONE" being a special case
+	validQueueSubscriptionSelectors := map[string]bool{"PUT": true, "GET": true, "GENERAL": true, "OPENCLOSE": true, "INQSET": true, "NONE": true}
+
 	// If someone has explicitly said not to use publications, then they
 	// must require use of the xxSTATUS commands. So override that flag even if they
 	// have set UseStatus to false on the command line.
@@ -373,8 +384,22 @@ func VerifyConfig(cm *Config, fullCf interface{}) error {
 		}
 	}
 
+	if err == nil {
+		if cm.QueueSubscriptionSelector != "" {
+			subSel := strings.Split(cm.QueueSubscriptionSelector, ",")
+			for _, sel := range subSel {
+				if _, ok := validQueueSubscriptionSelectors[sel]; !ok {
+					err = fmt.Errorf("Invalid value %s for queue subscription selector", sel)
+				}
+			}
+		}
+	}
+
 	// Do not use VerifyPatterns for monitoredTopics or Subs as they follow a very different style
 	if err == nil {
+		if cm.TZOffsetString == "" {
+			cm.TZOffsetString = defaultTZOffset
+		}
 		offset, err := time.ParseDuration(cm.TZOffsetString)
 		if err != nil {
 			err = fmt.Errorf("Invalid value for time offset parameter: %v", err)
@@ -384,13 +409,19 @@ func VerifyConfig(cm *Config, fullCf interface{}) error {
 	}
 
 	if err == nil {
+		if cm.pollInterval == "" {
+			cm.pollInterval = defaultPollInterval
+		}
 		cm.PollIntervalDuration, err = time.ParseDuration(cm.pollInterval)
 		if err != nil {
-			err = fmt.Errorf("Invalid value for poll interval parameter: %v", err)
+			err = fmt.Errorf("Invalid value %s for poll interval parameter: %v", cm.pollInterval, err)
 		}
 	}
 
 	if err == nil {
+		if cm.rediscoverInterval == "" {
+			cm.rediscoverInterval = defaultRediscoverInterval
+		}
 		cm.RediscoverDuration, err = time.ParseDuration(cm.rediscoverInterval)
 		if err != nil {
 			err = fmt.Errorf("Invalid value for rediscovery interval parameter: %v", err)
@@ -406,6 +437,16 @@ func VerifyConfig(cm *Config, fullCf interface{}) error {
 	if err == nil {
 		if cfMoved.ShowInactiveChannels != "" {
 			err = fmt.Errorf("ShowInactiveChannels has moved to filters section of configuration")
+		}
+	}
+
+	if err == nil {
+		if cm.metadataTags != "" {
+			cm.MetadataTagsArray = strings.Split(cm.metadataTags, ",")
+			cm.MetadataValuesArray = strings.Split(cm.metadataValues, ",")
+			if len(cm.MetadataTagsArray) != len(cm.MetadataValuesArray) {
+				err = fmt.Errorf("Mismatch in metadata Tags/Values lengths")
+			}
 		}
 	}
 
@@ -430,7 +471,7 @@ func PrintInfo(title string, stamp string, commit string, buildPlatform string) 
 	if buildPlatform != "" {
 		fmt.Fprintf(os.Stderr, "Build Platform: %s\n", buildPlatform)
 	}
-	fmt.Fprintf(os.Stderr, "MQ Go Version : %s\n", MqGolangVersion)
+	fmt.Fprintf(os.Stderr, "MQ Go Version : %s\n", MqGolangVersion())
 	fmt.Fprintf(os.Stderr, "\n")
 }
 

@@ -14,7 +14,7 @@ package ibmmq
 * for each value; those can be found in other header files such as
 * cmqc.h.
 ****************************************************************
-* Copyright (c) IBM Corporation 1993, 2023
+* Copyright (c) IBM Corporation 1993, 2024
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -30,8 +30,8 @@ package ibmmq
 ****************************************************************
 *
 *   <BEGIN_BUILDINFO>
-*   Generated on:  5/31/23 12:58 PM
-*   Build Level:   p933-L230531
+*   Generated on:  6/5/24 2:30 PM
+*   Build Level:   p940-L240605.1
 *   Build Type:    Production
 *   <END_BUILDINFO>
  */
@@ -1032,7 +1032,7 @@ const (
 	MQCMDI_SEC_SIGNOFF_ERROR       int32  = 17
 	MQCMDI_SEC_TIMER_ZERO          int32  = 14
 	MQCMDI_SEC_UPPERCASE           int32  = 21
-	MQCMDL_CURRENT_LEVEL           int32  = 933
+	MQCMDL_CURRENT_LEVEL           int32  = 940
 	MQCMDL_LEVEL_1                 int32  = 100
 	MQCMDL_LEVEL_101               int32  = 101
 	MQCMDL_LEVEL_110               int32  = 110
@@ -1083,6 +1083,9 @@ const (
 	MQCMDL_LEVEL_931               int32  = 931
 	MQCMDL_LEVEL_932               int32  = 932
 	MQCMDL_LEVEL_933               int32  = 933
+	MQCMDL_LEVEL_934               int32  = 934
+	MQCMDL_LEVEL_935               int32  = 935
+	MQCMDL_LEVEL_940               int32  = 940
 	MQCMD_ACCOUNTING_MQI           int32  = 167
 	MQCMD_ACCOUNTING_Q             int32  = 168
 	MQCMD_ACTIVITY_MSG             int32  = 69
@@ -1336,6 +1339,8 @@ const (
 	MQCNO_VERSION_8                int32  = 8
 	MQCODL_AS_INPUT                int32  = -1
 	MQCOMPRESS_ANY                 int32  = 268435455
+	MQCOMPRESS_LZ4FAST             int32  = 16
+	MQCOMPRESS_LZ4HIGH             int32  = 32
 	MQCOMPRESS_NONE                int32  = 0
 	MQCOMPRESS_NOT_AVAILABLE       int32  = -1
 	MQCOMPRESS_RLE                 int32  = 1
@@ -1370,14 +1375,17 @@ const (
 	MQCRC_PROGRAM_NOT_AVAILABLE    int32  = 7
 	MQCRC_SECURITY_ERROR           int32  = 6
 	MQCRC_TRANSID_NOT_AVAILABLE    int32  = 9
+	MQCSP_AUTH_ID_TOKEN            int32  = 2
 	MQCSP_AUTH_NONE                int32  = 0
 	MQCSP_AUTH_USER_ID_AND_PWD     int32  = 1
-	MQCSP_CURRENT_LENGTH           int32  = 80
-	MQCSP_CURRENT_VERSION          int32  = 2
+	MQCSP_CURRENT_LENGTH           int32  = 104
+	MQCSP_CURRENT_VERSION          int32  = 3
 	MQCSP_LENGTH_1                 int32  = 56
 	MQCSP_LENGTH_2                 int32  = 80
+	MQCSP_LENGTH_3                 int32  = 104
 	MQCSP_VERSION_1                int32  = 1
 	MQCSP_VERSION_2                int32  = 2
+	MQCSP_VERSION_3                int32  = 3
 	MQCSRV_CONVERT_NO              int32  = 0
 	MQCSRV_CONVERT_YES             int32  = 1
 	MQCSRV_DLQ_NO                  int32  = 0
@@ -1857,7 +1865,7 @@ const (
 	MQIACF_INVALID_DEST_COUNT      int32  = 1371
 	MQIACF_ITEM_COUNT              int32  = 1378
 	MQIACF_KNOWN_DEST_COUNT        int32  = 1369
-	MQIACF_LAST_USED               int32  = 1465
+	MQIACF_LAST_USED               int32  = 1466
 	MQIACF_LDAP_CONNECTION_STATUS  int32  = 1409
 	MQIACF_LISTENER_ATTRS          int32  = 1222
 	MQIACF_LISTENER_STATUS_ATTRS   int32  = 1223
@@ -2073,6 +2081,7 @@ const (
 	MQIACF_SYSP_UNIT_STATUS        int32  = 1215
 	MQIACF_SYSP_WLM_INTERVAL       int32  = 1202
 	MQIACF_SYSP_WLM_INT_UNITS      int32  = 1268
+	MQIACF_SYSP_ZHYPERLINK         int32  = 1466
 	MQIACF_SYSP_ZHYPERWRITE        int32  = 1414
 	MQIACF_SYSTEM_OBJECTS          int32  = 1404
 	MQIACF_THREAD_ID               int32  = 1025
@@ -3406,6 +3415,7 @@ const (
 	MQRCCF_HB_INTERVAL_WRONG_TYPE  int32  = 4078
 	MQRCCF_HOBJ_ERROR              int32  = 3315
 	MQRCCF_HOST_NOT_AVAILABLE      int32  = 4010
+	MQRCCF_INCOMPATIBLE_QM_IN_QSG  int32  = 3389
 	MQRCCF_INCORRECT_Q             int32  = 3079
 	MQRCCF_INCORRECT_STREAM        int32  = 3075
 	MQRCCF_INDOUBT_VALUE_ERROR     int32  = 3053
@@ -4135,6 +4145,7 @@ const (
 	MQRC_TERMINATION_FAILED        int32  = 2287
 	MQRC_TMC_ERROR                 int32  = 2191
 	MQRC_TM_ERROR                  int32  = 2265
+	MQRC_TOKEN_TIMESTAMP_NOT_VALID int32  = 2064
 	MQRC_TOPIC_NOT_ALTERABLE       int32  = 2510
 	MQRC_TOPIC_STRING_ERROR        int32  = 2425
 	MQRC_TRIGGER_CONTROL_ERROR     int32  = 2075
@@ -4967,6 +4978,7 @@ const (
 	MQ_CERT_LABEL_LENGTH           int32  = 64
 	MQ_CERT_VAL_POLICY_ANY         int32  = 0
 	MQ_CERT_VAL_POLICY_DEFAULT     int32  = 0
+	MQ_CERT_VAL_POLICY_NONE        int32  = 2
 	MQ_CERT_VAL_POLICY_RFC5280     int32  = 1
 	MQ_CF_LEID_LENGTH              int32  = 12
 	MQ_CF_STRUC_DESC_LENGTH        int32  = 64
@@ -4991,6 +5003,7 @@ const (
 	MQ_CREATION_DATE_LENGTH        int32  = 12
 	MQ_CREATION_TIME_LENGTH        int32  = 8
 	MQ_CSP_PASSWORD_LENGTH         int32  = 256
+	MQ_CSP_TOKEN_LENGTH            int32  = 8192
 	MQ_CUSTOM_LENGTH               int32  = 128
 	MQ_DATA_SET_NAME_LENGTH        int32  = 44
 	MQ_DATE_LENGTH                 int32  = 12
